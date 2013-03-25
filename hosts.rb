@@ -2,6 +2,8 @@ require 'yaml'
 require 'net/ssh'
 require 'net/scp'
 
+require_relative 'log'
+
 class GenericHost
   attr_accessor :name
   attr_accessor :host
@@ -18,9 +20,9 @@ class GenericHost
 
   def ssh_connect
     return if @ssh_conn
-    print "connecting to #{name} #{host} ... "
+    debug "connecting to #{name} #{host} ... "
     @ssh_conn = Net::SSH.start(@host, @user, :password => @pass)
-    puts "conntected"
+    debug "#{name} #{host} conntected"
   end
 
   def ssh_exec!(ssh, command)
@@ -31,6 +33,7 @@ class GenericHost
     ssh.open_channel do |channel|
       channel.exec(command) do |ch, success|
         unless success
+          fail "FAILED: couldn't execute command (ssh.channel.exec)"
           abort "FAILED: couldn't execute command (ssh.channel.exec)"
         end
         channel.on_data do |ch,data|
@@ -55,8 +58,8 @@ class GenericHost
   end
 
   def exec(cmd, stopaterror = nil)
-    puts "exec #{cmd} on #{@name} ..."
     ssh_connect
+    debug "exec #{cmd} on #{@name}"
     stdout, stderr, code, signal = ssh_exec!(@ssh_conn, cmd)
     if code > 0 and stopaterror then
       abort "FAILED, command return with error: #{stderr}"
@@ -75,40 +78,42 @@ class Host < GenericHost
 
   def upload(local, remote)
     unless remote.start_with? '/'
-      puts "remote dir must start with /"
+      warn "remote dir must start with /"
       return
     end
     ssh_connect
     Dir.glob(local) do |file|
-      puts "uploding #{file} to #{@host}:#{remote}"
+      debug "uploding #{file} to #{@host}:#{remote}"
       @ssh_conn.scp.upload! file, remote do |ch, name, sent, total|
-        print "\r    #{name} - #{sent * 100 / total}% - #{sent}/#{total}"
+        percent = 100
+        percent = sent * 100 / total if total > 0
+        debug "    #{name} - #{percent}% - #{sent}/#{total}"
       end
-      print "\n"
     end
-    puts "upload completed"
+    debug "upload completed"
   end
 
   def download(remote, local)
     unless remote.start_with? '/'
-      puts "remote dir must start with /"
+      warn "remote dir must start with /"
       return
     end
     ssh_connect
-    files = exec("find #{remote}").split("\n")
+    files = exec("find #{remote} -type f").split("\n")
     files.each do |file|
       file = file.strip
-      puts "downloading #{@host}:#{file} to #{local}"
+      debug "downloading #{@host}:#{file} to #{local}"
       @ssh_conn.scp.download! file, local do |ch, name, sent, total|
-        print "\r    #{name}: #{sent * 100 / total}% \t #{sent}/#{total}"
+        percent = 100
+        percent = sent * 100 / total if total > 0
+        debug "    #{name}: #{percent}% \t #{sent}/#{total}"
       end
-      print "\n"
     end
-    puts "download completed"
+    debug "download completed"
   end
 
   def start_task(task)
-    puts "starting #{task} as backgroud task"
+    info "starting #{task} as backgroud task"
     cmd = "nohup #{task} > /dev/null 2> /dev/null < /dev/null &"
     exec(cmd)
   end
@@ -119,8 +124,14 @@ class Host < GenericHost
   end
 
   def kill(str)
+    info "kill #{str}"
     cmd = "ps -aef | grep #{brackets_first_char(str)} | awk '{print $2}' | xargs kill"
     exec(cmd)
+    while(true)
+      sleep 2
+      debug "waiting for #{str} to die"
+      break unless check_task(str)
+    end
   end
 
   def check_task(str)
@@ -130,12 +141,30 @@ class Host < GenericHost
   end
 
   def wait_task(str)
-    print "waiting for #{str} to end..."
+    info "waiting for #{str} to end..."
     while true
       break unless check_task(str)
       sleep 1
     end
     puts "gone."
+  end
+
+  def wait_or_kill_task(str, timeout)
+    info "wait or kill task #{str} timeout #{timeout}"
+    time1 = Time.now
+    while true
+      seconds = Time.now - time1
+      unless check_task(str)
+        debug "#{str} is gone, run for #{seconds} seconds"
+        break
+      end
+      if seconds > timeout
+        debug "timeout #{seconds} seconds, killing #{str} and exit"
+        kill(str)
+        break
+      end
+      sleep 5
+    end
   end
 
 end

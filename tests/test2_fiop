@@ -1,0 +1,11 @@
+[global]
+ioengine=aio
+iodepth=16
+filename=/dev/sdb
+ioscheduler=deadline
+
+[rw1]
+rw=randread
+
+[rw2]
+rw=randwrite
