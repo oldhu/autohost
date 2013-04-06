@@ -1,9 +1,13 @@
 require 'rexml/document'
 
 class SymmetrixHost < Host
+  attr_accessor :sid
+  attr_accessor :stp
+
   def initialize(name, host, user, pass, sid)
     super(name, host, user, pass)
     @sid = sid
+    @stp = STP.new(self)
     @hbas = []
   end
 
@@ -86,26 +90,56 @@ class SymmetrixHost < Host
     doc.text('SymCLI_ML/Symmetrix/Symm_Info/symid')
   end
 
-  def clean_ttp
-    sid = fetch_full_sid(@sid)
-    exec("rm /var/symapi/stp/ttp/#{sid}/*")
+end
+
+class STP
+  def initialize(symm)
+    @symm = symm
   end
 
-  def download_ttp(local)
-    sid = fetch_full_sid(@sid)
-    download("/var/symapi/stp/ttp/#{sid}/", local)
+  def full_sid
+    @full_sid ||= symm.fetch_full_sid(@symm.sid)
   end
 
-  def start_ttp(interval)
-    exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name dmn_symmids=#{@sid}")
-    exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name dmn_run_ttp=Enabled")
-    exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name ttp_collection_interval=#{interval}")
-    exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name ttp_symmids=#{@sid}")
-    exec("/opt/emc/SYMCLI/bin/stordaemon start storstpd")
+  def set_option(name, value)
+    symm.exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name #{name}=#{value}")
   end
 
-  def stop_ttp
-    exec("/opt/emc/SYMCLI/bin/stordaemon shutdown storstpd")
+  def disable_rdf_collect
+    set_option('ttp_rdfa_metrics', 'Disabled')
+    set_option('ttp_rdfsys_metrics', 'Disabled')
+    set_option('ttp_rdfdir_metrics', 'Disabled')
+    set_option('ttp_rdfdev_metrics', 'Disabled')
+    set_option('ttp_rdfgrp_metrics', 'Disabled')
   end
 
+  def set_default_options
+    set_option('dmn_symmids', full_sid)
+    set_option('dmn_run_ttp', 'Enabled')
+    set_option('ttp_collection_interval', interval)
+    set_option('ttp_symmids', full_sid)
+    set_option('ttp_tp_dev_metrics', 'Enabled')
+    set_option('sync_vp_data', 'Enabled')
+  end
+
+  def start(interval)
+    info "starting stordaemon for sid #{full_sid}, collect interval #{interval}"
+    set_default_options
+    @symm.exec("/opt/emc/SYMCLI/bin/stordaemon start storstpd")
+  end
+
+  def stop
+    info "stopping stordaemon for sid #{full_sid}"
+    @symm.exec("/opt/emc/SYMCLI/bin/stordaemon shutdown storstpd")
+  end
+
+  def clean
+    info "cleaning ttp log dir for #{full_sid}"
+    @symm.exec("rm /var/symapi/stp/ttp/#{full_sid}/*")
+  end
+
+  def download(local)
+    info "download ttp log files for #{full_sid} into #{local}"
+    @symm.download("/var/symapi/stp/ttp/#{full_sid}/", local)
+  end
 end

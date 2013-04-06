@@ -2,11 +2,15 @@ require 'logger'
 
 $logger = Logger.new(STDOUT)
 
-$logger.sev_threshold = Logger::DEBUG
+$logger.sev_threshold = Logger::INFO
 
 $logger.formatter = proc do |severity, datetime, progname, msg|
   datestr = datetime.strftime("%Y-%m-%d %H:%M:%S")
   "#{severity}\t#{datestr} -- #{msg}\n"
+end
+
+def enable_debug_log
+  $logger.sev_threshold = Logger::DEBUG
 end
 
 def info(str)
@@ -14,7 +18,7 @@ def info(str)
 end
 
 def debug(str)
-  $logger.debug(str)
+  $logger.debug('    ' + str)
 end
 
 def error(str)
