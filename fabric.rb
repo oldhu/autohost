@@ -1,4 +1,4 @@
-require './log'
+require_relative 'log'
 
 class SwitchHost < GenericHost
   def is_principal?
