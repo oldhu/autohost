@@ -124,7 +124,7 @@ class Host < GenericHost
   end
 
   def kill(str)
-    info "kill #{str}"
+    info "kill #{str} and wait for it to go"
     cmd = "ps -aef | grep #{brackets_first_char(str)} | awk '{print $2}' | xargs kill"
     exec(cmd)
     while(true)
@@ -163,6 +163,21 @@ class Host < GenericHost
         kill(str)
         break
       end
+      info "#{str} ran #{seconds.to_i} seconds, #{(timeout - seconds).to_i} to go, #{(100 * seconds / timeout).to_i}% completed."
+      sleep 5
+    end
+  end
+
+  def wait(timeout)
+    info "wait timeout #{timeout}"
+    time1 = Time.now
+    while true
+      seconds = Time.now - time1
+      if seconds > timeout
+        debug "timeout #{seconds} seconds, exit"
+        break
+      end
+      info "waited #{seconds.to_i} seconds, #{(timeout - seconds).to_i} to go, #{(100 * seconds / timeout).to_i}% completed."
       sleep 5
     end
   end
