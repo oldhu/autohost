@@ -1,0 +1,8 @@
+*.bin
+*.db3
+*.btp
+*.ttp
+*.ttp.gz
+*.xml
+*.csv
+*.xlsx
