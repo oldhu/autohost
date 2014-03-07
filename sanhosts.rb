@@ -36,7 +36,7 @@ class HBA
   end
 end
 
-class SanHost < GenericHost
+class SanHost < Host
   attr_accessor :hbas
 
   def initialize(name, host, user, pass)
@@ -57,6 +57,14 @@ class SanHost < GenericHost
       @hbas.push(hba)
     end
     debug "found #{@hbas.size} HBA"
+  end
+
+  def list_hba
+    fetch_hba if @hbas == nil
+    puts "dev".ljust(10) + "wwn".ljust(26) + "speed".ljust(8)
+    @hbas.each do |hba|
+      puts hba.dev.ljust(10) + hba.wwn.ljust(26) + "#{hba.speed}".ljust(8)
+    end
   end
 end
 

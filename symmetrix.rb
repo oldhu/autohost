@@ -1,14 +1,15 @@
 require 'rexml/document'
 
-class SymmetrixHost < Host
+class SymmetrixHost < SanHost
   attr_accessor :sid
   attr_accessor :stp
+  attr_accessor :ap
 
   def initialize(name, host, user, pass, sid)
     super(name, host, user, pass)
     @sid = sid
     @stp = STP.new(self)
-    @hbas = []
+    @ap = AutoProvision.new(self)
   end
 
   def exec_doc(cmd)
@@ -20,6 +21,11 @@ class SymmetrixHost < Host
     return exec_doc("export SYMCLI_SID=#{sid};" + cmd)
   end
 
+  def exec_sym(cmd)
+    return exec_doc("export SYMCLI_SID=#{@sid};" + cmd)
+  end
+
+  # replace with symcfg list
   def fetch_symids
     doc = exec_doc('syminq -sym -symmids -wwn')
     symids = []
@@ -45,6 +51,7 @@ class SymmetrixHost < Host
   end
 
   def fetch_hba
+    debug "fetching HBA of #{@host}"
     fetch_fa_wwns(@sid)
   end
 
@@ -98,11 +105,11 @@ class STP
   end
 
   def full_sid
-    @full_sid ||= symm.fetch_full_sid(@symm.sid)
+    @full_sid ||= @symm.fetch_full_sid(@symm.sid)
   end
 
   def set_option(name, value)
-    symm.exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name #{name}=#{value}")
+    @symm.exec("/opt/emc/SYMCLI/bin/stordaemon setoption storstpd -name #{name}=#{value}")
   end
 
   def disable_rdf_collect
@@ -113,7 +120,7 @@ class STP
     set_option('ttp_rdfgrp_metrics', 'Disabled')
   end
 
-  def set_default_options
+  def set_default_options(interval)
     set_option('dmn_symmids', full_sid)
     set_option('dmn_run_ttp', 'Enabled')
     set_option('ttp_collection_interval', interval)
@@ -124,7 +131,7 @@ class STP
 
   def start(interval)
     info "starting stordaemon for sid #{full_sid}, collect interval #{interval}"
-    set_default_options
+    set_default_options(interval)
     @symm.exec("/opt/emc/SYMCLI/bin/stordaemon start storstpd")
   end
 
@@ -142,4 +149,109 @@ class STP
     info "download ttp log files for #{full_sid} into #{local}"
     @symm.download("/var/symapi/stp/ttp/#{full_sid}/", local)
   end
+end
+
+class InitGrp
+  attr_accessor :name
+  attr_accessor :wwns
+
+  def initialize(symm, name)
+    @symm = symm
+    @name = name
+    @wwns = []
+  end
+
+  def fetch_wwns
+    @wwns = []
+    doc = @symm.exec_sym("symaccess show #{name} -type initiator")
+    doc.elements.each('SymCLI_ML/Symmetrix/Initiator_Group/Group_Info/Initiators/wwn') do |w|
+      @wwns << w.text
+    end
+  end
+
+  def rmall
+    @wwns.each do |w|
+      info "removing #{w} from #{name}"
+      cmd = "symaccess -name #{name} -type initiator -wwn #{w} remove"
+      @symm.exec_sym(cmd)
+    end
+  end
+
+  def destroy
+    rmall
+    @symm.exec_sym()
+  end
+end
+
+class View
+  attr_accessor :ig
+  attr_accessor :sg
+  attr_accessor :pg
+  attr_accessor :name
+
+  def initialize(symm, name, ig_name, sg, pg)
+    @symm = symm
+    @name = name
+    @ig = InitGrp.new(symm, ig_name)
+    @sg = sg
+    @pg = pg
+  end
+end
+
+class AutoProvision
+  def initialize(symm)
+    @symm = symm
+    @views = []
+  end
+
+  def create_ig(name)
+  end
+
+  def create_sg(name)
+  end
+
+  def create_pg(name)
+  end
+
+  def create_view(ig, sg, pg)
+  end
+
+  def fetch_views
+    @views = []
+    doc = @symm.exec_sym("symaccess list view")
+    doc.elements.each('SymCLI_ML/Symmetrix/Masking_View/View_Info') do |ele|
+      name = ele.text('view_name')
+      ig = ele.text('init_grpname')
+      sg = ele.text('stor_grpname')
+      pg = ele.text('port_grpname')
+      view = View.new(@symm, name, ig, sg, pg)
+      @views << view
+    end
+  end
+
+  def list_views
+    fetch_views
+    puts "name".ljust(20) + "ig".ljust(20) + "pg".ljust(20) + "sg".ljust(20)
+    puts '=' * 80
+    @views.each do |v|
+        puts v.name.ljust(20) + v.ig.name.ljust(20) + v.pg.ljust(20) + v.sg.ljust(20)
+    end
+  end
+
+  def get_view_by_name(name)
+    fetch_views if @views.size == 0
+    @views.each do |v|
+      return v if v.name == name 
+    end
+    return nil
+  end
+
+  def destroy_view(name)
+    view = get_view_by_name(name)
+    if view == nil
+      info "Cannot find view name #{name}"
+    end
+    info "destroying view #{name} and related groups"
+  end
+
 end
